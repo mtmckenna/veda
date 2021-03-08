@@ -13,6 +13,7 @@ export default class Player implements Playable {
     private view: View;
     private veda: Veda;
     private textures: { [name: string]: THREE.DataTexture } = {};
+    private videos: { [name: string]: HTMLVideoElement | null } = {};
 
     public constructor(view: View, rc: Rc, isPlaying: boolean, shader: Shader) {
         this.view = view;
@@ -67,14 +68,21 @@ export default class Player implements Playable {
             if (added.IMPORTED[key] === undefined) {
                 const pathToRemove = !importedPaths[path] ? path : undefined;
                 this.veda.unloadTexture(key, pathToRemove);
+                this.videos[key] = null;
             }
         });
         Object.keys(added.IMPORTED || {}).forEach((key): void => {
-            this.veda.loadTexture(
-                key,
-                added.IMPORTED[key].PATH,
-                added.IMPORTED[key].SPEED,
-            );
+            this.veda
+                .loadTexture(
+                    key,
+                    added.IMPORTED[key].PATH,
+                    added.IMPORTED[key].SPEED,
+                )
+                .then((video) => {
+                    if (video) {
+                        this.videos[key] = video;
+                    }
+                });
         });
         if (added.vertexMode) {
             this.veda.setVertexMode(added.vertexMode);
@@ -200,15 +208,29 @@ export default class Player implements Playable {
     private setOsc(oscData: OscData): void {
         const { name, data } = oscData;
 
+        const data2 = [data[0]];
+        console.log('SET OSC NAME: ', name, data, data2, this.videos);
+        const video = this.videos[data[1]];
+
+        if (video) {
+            console.log('setting video to ', data[2]);
+            video.currentTime = data[2];
+            video.muted = false;
+            video.volume = data[3] || 0.0;
+            video.play();
+        } else {
+            console.log('sadly no video at key', this.videos[data[1]]);
+        }
+
         const texture = this.textures[name];
-        if (!texture || texture.image.data.length !== data.length) {
+        if (!texture || texture.image.data.length !== data2.length) {
             if (texture) {
                 texture.dispose();
             }
-            const array = new Float32Array(data);
+            const array = new Float32Array(data2);
             const newTexture = new THREE.DataTexture(
                 array,
-                data.length,
+                data2.length,
                 1,
                 THREE.LuminanceFormat,
                 THREE.FloatType,
@@ -217,7 +239,7 @@ export default class Player implements Playable {
             this.textures[name] = newTexture;
             this.veda.setUniform(name, 't', newTexture);
         } else {
-            data.forEach((d, i): void => {
+            data2.forEach((d, i): void => {
                 texture.image.data[i] = d;
             });
             texture.needsUpdate = true;
